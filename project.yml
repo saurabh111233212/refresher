@@ -1,0 +1,42 @@
+name: Refresher
+options:
+  bundleIdPrefix: dev.refresher
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  RefresherCore:
+    path: Core
+targets:
+  Refresher:
+    type: application
+    platform: iOS
+    sources:
+      - App/Sources
+      - App/Resources/Assets.xcassets
+      - path: App/Resources/web
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: RefresherCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.refresher.cards.k7q2
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.10"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: RP585JNW73
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Refresher
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+schemes:
+  Refresher:
+    build:
+      targets:
+        Refresher: all
+    test:
+      targets: []

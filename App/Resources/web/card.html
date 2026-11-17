@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<link rel="stylesheet" href="katex/katex.min.css">
+<script src="katex/katex.min.js"></script>
+<script src="marked.min.js"></script>
+<style>
+  :root { --fg: #1d1b22; --muted: #6b6676; --code-bg: rgba(120, 100, 160, 0.10); --accent: #e8590c; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f1eef6; --muted: #a49eb0; --code-bg: rgba(200, 180, 255, 0.12); --accent: #ff8a3d; color-scheme: dark; } }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font: -apple-system-body; font-size: var(--size, 17px); line-height: 1.45; color: var(--fg); -webkit-text-size-adjust: none; overflow-wrap: anywhere; }
+  body.center { text-align: center; }
+  p { margin: 0 0 0.6em; }
+  p:last-child, ul:last-child, ol:last-child { margin-bottom: 0; }
+  ul, ol { margin: 0 0 0.6em; padding-left: 1.3em; text-align: left; }
+  li { margin: 0.15em 0; }
+  em { color: var(--muted); }
+  strong { font-weight: 650; }
+  code { font: 0.88em ui-monospace, Menlo, monospace; background: var(--code-bg); padding: 0.1em 0.3em; border-radius: 4px; }
+  pre { background: var(--code-bg); padding: 0.6em 0.8em; border-radius: 8px; overflow-x: auto; text-align: left; }
+  pre code { background: none; padding: 0; }
+  a { color: var(--accent); }
+  .katex-display { margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; padding: 0.1em 0; }
+  .divider { height: 2px; border-radius: 1px; background: var(--deck, var(--accent)); opacity: 0.35; margin: 1em 0; }
+  .question { font-size: 1.25em; transition: opacity 0.25s, font-size 0.25s; }
+  .revealed .question { opacity: 0.7; font-size: 0.95em; }
+  .answer-block { transition: opacity 0.3s, transform 0.3s; }
+  body:not(.revealed) .answer-block { display: none; }
+  .answer-block.entering { opacity: 0; transform: translateY(8px); }
+  table { border-collapse: collapse; font-size: 0.9em; }
+  td, th { border-bottom: 1px solid var(--code-bg); padding: 0.2em 0.5em; }
+</style>
+</head>
+<body>
+<div id="content"></div>
+<script>
+  // Raw HTML in markdown is shown as text: model output never becomes live markup.
+  marked.use({ renderer: { html(token) { const div = document.createElement("div"); div.textContent = token.text ?? token; return div.innerHTML; } } });
+
+  const MATH = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$/g;
+
+  function toHTML(markdown) {
+    const math = [];
+    // Math is pulled out before markdown so `_` and `*` inside TeX aren't read as emphasis.
+    const protectedText = markdown.replace(MATH, (_, a, b, c, d) => {
+      math.push({ tex: a ?? b ?? c ?? d, display: a !== undefined || b !== undefined });
+      return "@@MATH" + (math.length - 1) + "@@";
+    });
+    const html = marked.parse(protectedText, { breaks: true }).replace(/@@MATH(\d+)@@/g, (_, index) => {
+      const item = math[Number(index)];
+      return katex.renderToString(item.tex, { displayMode: item.display, throwOnError: false });
+    });
+    return html;
+  }
+
+  function render(markdown, fontSize, centered) {
+    document.body.style.setProperty("--size", fontSize + "px");
+    document.body.classList.toggle("center", centered);
+    document.body.classList.remove("revealed");
+    document.getElementById("content").innerHTML = toHTML(markdown);
+    reportHeight();
+  }
+
+  // A flashcard: question and answer render together so revealing is a class toggle, not a reload.
+  function renderCard(question, answer, fontSize, deckColor, revealed) {
+    document.body.style.setProperty("--size", fontSize + "px");
+    document.body.style.setProperty("--deck", deckColor);
+    document.getElementById("content").innerHTML =
+      '<div class="question">' + toHTML(question) + '</div><div class="answer-block"><div class="divider"></div>' + toHTML(answer) + '</div>';
+    setRevealed(revealed);
+  }
+
+  function setRevealed(revealed) {
+    const wasRevealed = document.body.classList.contains("revealed");
+    document.body.classList.toggle("revealed", revealed);
+    const block = document.querySelector(".answer-block");
+    if (revealed && !wasRevealed && block) {
+      block.classList.add("entering");
+      requestAnimationFrame(() => requestAnimationFrame(() => block.classList.remove("entering")));
+    }
+    reportHeight();
+  }
+
+  function reportHeight() {
+    window.webkit.messageHandlers.height.postMessage(document.getElementById("content").getBoundingClientRect().height);
+  }
+  new ResizeObserver(reportHeight).observe(document.getElementById("content"));
+</script>
+</body>
+</html>
