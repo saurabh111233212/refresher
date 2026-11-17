@@ -15,12 +15,16 @@ final class TutorConversation {
     private var firstQuestionID: UUID?
     private var firstQuestionSent = ""
     private var streaming: Task<Void, Never>?
+    /// Identifies this thread in the activity log; Clear starts a new one.
+    private var id = UUID()
+    private var turn = 0
 
     init(focus: Card?) {
         self.focus = focus
     }
 
-    func send(_ text: String, documents: [VaultDocument], settings: TutorSettings) {
+    /// Every finished, stopped or failed exchange is logged, so weak spots can be found later.
+    func send(_ text: String, model: AppModel) {
         let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !isStreaming else { return }
         guard let apiKey = Keychain.readKey() else {
@@ -28,8 +32,9 @@ final class TutorConversation {
             return
         }
         error = nil
+        let settings = model.settings.tutor
         let sentTurn = messages.isEmpty ? TutorContext.userTurn(question: question, focus: focus) : question
-        let history = [ChatMessage(role: .system, content: TutorContext.systemPrompt(documents: documents))]
+        let history = [ChatMessage(role: .system, content: TutorContext.systemPrompt(documents: model.tutorDocuments))]
             + messages.map { ChatMessage(role: $0.role, content: $0.id == firstQuestionID ? firstQuestionSent : $0.content) }
             + [ChatMessage(role: .user, content: sentTurn)]
         let shown = ChatMessage(role: .user, content: question)
@@ -38,12 +43,18 @@ final class TutorConversation {
             firstQuestionSent = sentTurn
         }
         messages.append(shown)
-        messages.append(ChatMessage(role: .assistant, content: ""))
-        let reply = messages.count - 1
+        let placeholder = ChatMessage(role: .assistant, content: "")
+        messages.append(placeholder)
+        turn += 1
+        let thisTurn = turn
+        let conversationID = id
         isStreaming = true
 
         streaming = Task {
             defer { isStreaming = false }
+            var reply = ""
+            var outcome = TutorOutcome.completed
+            var failure: String?
             do {
                 let request = try ChatCompletions.request(apiKey: apiKey, settings: settings, messages: history)
                 let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -53,21 +64,27 @@ final class TutorConversation {
                     for try await line in bytes.lines { body += line }
                     throw TutorError.http(status, body)
                 }
-                for try await line in bytes.lines {
+                stream: for try await line in bytes.lines {
                     switch try ChatCompletions.parse(line: line) {
-                    case let .text(chunk): messages[reply].content += chunk
-                    case .done: return
+                    case let .text(chunk):
+                        reply += chunk
+                        // Looked up by id: Clear may have emptied the thread mid-stream.
+                        if let index = messages.firstIndex(where: { $0.id == placeholder.id }) { messages[index].content += chunk }
+                    case .done: break stream
                     case .ignored: continue
                     }
                 }
             } catch is CancellationError {
-                // Stopped by the user; keep whatever streamed so far.
+                outcome = .stopped  // keep whatever streamed so far
             } catch let urlError as URLError where urlError.code == .cancelled {
-                // Same, surfaced by URLSession.
+                outcome = .stopped  // same, surfaced by URLSession
             } catch {
-                self.error = error.localizedDescription
-                if messages[reply].content.isEmpty { messages.remove(at: reply) }
+                outcome = .failed
+                failure = error.localizedDescription
+                self.error = failure
+                if reply.isEmpty { messages.removeAll { $0.id == placeholder.id } }
             }
+            model.logActivity(TutorExchange(at: .now, conversation: conversationID, turn: thisTurn, card: focus.map(CardReference.init), ask: question, reply: reply, outcome: outcome, error: failure, model: settings.model))
         }
     }
 
@@ -79,6 +96,8 @@ final class TutorConversation {
         streaming?.cancel()
         messages = []
         firstQuestionID = nil
+        id = UUID()
+        turn = 0
         error = nil
     }
 }

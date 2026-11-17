@@ -241,3 +241,31 @@ struct ProgressBackupTests {
         #expect(throws: ProvisioningProfileError.noExpirationDate) { try ProvisioningProfile.expirationDate(from: noDate) }
     }
 }
+
+struct ActivityLogTests {
+    private let card = Card(id: "abc", deck: "RL for LLMs", question: "What is k3?", answer: "ρ − 1 − log ρ")
+
+    @Test func testTutorExchangeIsOneLineWithEscapedNewlines() throws {
+        let conversation = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let exchange = TutorExchange(at: Date(timeIntervalSince1970: 0), conversation: conversation, turn: 2, card: CardReference(card), ask: "Help me see this", reply: "Line one.\nLine two.", outcome: .completed, error: nil, model: "gpt-6-astra")
+        let line = try ActivityLog.line(exchange)
+        #expect(line.hasSuffix("}\n"))
+        #expect(line.dropLast().contains("\n") == false)
+        #expect(line.contains(#""kind":"tutor""#))
+        #expect(line.contains(#""reply":"Line one.\nLine two.""#))
+        #expect(line.contains(#""at":"1970-01-01T00:00:00Z""#))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        #expect(try decoder.decode(TutorExchange.self, from: Data(line.utf8)) == exchange)
+    }
+
+    @Test func testReviewEventCarriesTheResultingSchedule() throws {
+        let state = Scheduler.review(nil, grade: .good, now: Date(timeIntervalSince1970: 0))
+        let event = ReviewEvent(at: Date(timeIntervalSince1970: 0), card: CardReference(card), grade: .good, state: state)
+        let line = try ActivityLog.line(event)
+        #expect(line.contains(#""kind":"review""#))
+        #expect(line.contains(#""grade":"good""#))
+        #expect(line.contains(#""intervalDays":1"#))
+        #expect(line.contains(#""question":"What is k3?""#))
+    }
+}

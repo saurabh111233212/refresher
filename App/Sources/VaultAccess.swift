@@ -70,6 +70,36 @@ enum VaultAccess {
         }.value
     }
 
+    /// Appends lines to the activity log, creating it on first use. Only this app writes the file, so appends never interleave.
+    static func appendActivity(_ text: String) async throws {
+        let url = try savedFolderURL()
+        try await Task.detached(priority: .utility) {
+            try withAccess(to: url) { vault in
+                let file = vault.appendingPathComponent(ActivityLog.fileName)
+                let placeholder = vault.appendingPathComponent(".\(ActivityLog.fileName).icloud")
+                // Download first: appending to a fresh local file would fork iCloud's copy into a conflict.
+                if FileManager.default.fileExists(atPath: placeholder.path) { _ = try coordinatedRead(file) }
+                var coordinationError: NSError?
+                var writeError: Error?
+                NSFileCoordinator().coordinate(writingItemAt: file, options: .forMerging, error: &coordinationError) { writeURL in
+                    do {
+                        if FileManager.default.fileExists(atPath: writeURL.path) {
+                            let handle = try FileHandle(forWritingTo: writeURL)
+                            defer { try? handle.close() }
+                            try handle.seekToEnd()
+                            try handle.write(contentsOf: Data(text.utf8))
+                        } else {
+                            try Data(text.utf8).write(to: writeURL, options: .atomic)
+                        }
+                    } catch {
+                        writeError = error
+                    }
+                }
+                if let error = coordinationError ?? writeError { throw error }
+            }
+        }.value
+    }
+
     private static func savedFolderURL() throws -> URL {
         guard let bookmark = UserDefaults.standard.data(forKey: bookmarkKey) else { throw VaultError.noFolder }
         var stale = false

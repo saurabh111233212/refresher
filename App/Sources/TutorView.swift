@@ -58,7 +58,7 @@ struct TutorView: View {
 
     private func send(_ text: String) {
         Haptics.tap()
-        conversation.send(text, documents: model.tutorDocuments, settings: model.settings.tutor)
+        conversation.send(text, model: model)
         draft = ""
     }
 }

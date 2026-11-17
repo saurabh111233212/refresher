@@ -22,6 +22,10 @@ final class AppModel {
     private(set) var vaultName: String?
     private(set) var backupError: String?
     private(set) var lastBackup: Date?
+    private(set) var activityError: String?
+    /// Events not yet appended to the vault log; kept on disk so an offline or failed write catches up later.
+    private(set) var pendingActivity: [String]
+    private var isFlushingActivity = false
     var settings: StudySettings { didSet { Storage.save(settings, as: .settings) } }
 
     private let calendar = Calendar.current
@@ -30,6 +34,7 @@ final class AppModel {
         settings = Storage.load(StudySettings.self, from: .settings) ?? StudySettings()
         states = Storage.load([String: ReviewState].self, from: .states) ?? [:]
         log = Storage.load(StudyLog.self, from: .log) ?? StudyLog()
+        pendingActivity = Storage.load([String].self, from: .pendingActivity) ?? []
         vaultName = VaultAccess.savedFolderName()
     }
 
@@ -128,6 +133,37 @@ final class AppModel {
         log.record(at: .now, wasNew: wasNew, calendar: calendar)
         Storage.save(states, as: .states)
         Storage.save(log, as: .log)
+        logActivity(ReviewEvent(at: .now, card: CardReference(card), grade: grade, state: states[card.id]!))
+    }
+
+    func logActivity(_ event: some Encodable) {
+        do {
+            pendingActivity.append(try ActivityLog.line(event))
+        } catch {
+            fatalError("Could not encode activity event: \(error)")
+        }
+        Storage.save(pendingActivity, as: .pendingActivity)
+        Task { await flushActivity() }
+    }
+
+    /// Appends queued events to the vault log, oldest first; only what was written is dropped from the queue.
+    func flushActivity() async {
+        guard hasVault, !isFlushingActivity else { return }
+        isFlushingActivity = true
+        defer { isFlushingActivity = false }
+        // Loops to pick up events logged while a write was in flight.
+        while !pendingActivity.isEmpty {
+            let batch = pendingActivity
+            do {
+                try await VaultAccess.appendActivity(batch.joined())
+            } catch {
+                activityError = "Couldn't write the activity log to the vault: \(error.localizedDescription)"
+                return
+            }
+            pendingActivity.removeFirst(batch.count)
+            Storage.save(pendingActivity, as: .pendingActivity)
+            activityError = nil
+        }
     }
 
     func resetProgress() {
@@ -151,7 +187,7 @@ final class AppModel {
 /// JSON files in Application Support: on-device only, never written into the vault.
 enum Storage {
     enum File: String {
-        case settings, states, log
+        case settings, states, log, pendingActivity
     }
 
     private static var directory: URL {

@@ -25,6 +25,10 @@ struct SettingsView: View {
                         if let error = model.backupError {
                             Text(error).font(.footnote).foregroundStyle(Theme.again)
                         }
+                        LabeledContent("Activity log", value: model.pendingActivity.isEmpty ? "Up to date" : "\(model.pendingActivity.count) waiting")
+                        if let error = model.activityError {
+                            Text(error).font(.footnote).foregroundStyle(Theme.again)
+                        }
                     }
                     if let expiry = model.installExpiry {
                         LabeledContent("Install expires", value: expiry.formatted(date: .abbreviated, time: .shortened))
