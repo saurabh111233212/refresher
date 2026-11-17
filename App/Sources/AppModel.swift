@@ -20,6 +20,8 @@ final class AppModel {
     private(set) var loadError: String?
     private(set) var isLoading = false
     private(set) var vaultName: String?
+    private(set) var backupError: String?
+    private(set) var lastBackup: Date?
     var settings: StudySettings { didSet { Storage.save(settings, as: .settings) } }
 
     private let calendar = Calendar.current
@@ -38,6 +40,16 @@ final class AppModel {
     var streak: Int { log.streak(endingAt: .now, goal: settings.dailyGoal, calendar: calendar) }
     var hasVault: Bool { vaultName != nil }
 
+    /// When this install stops launching. Free Apple ID signing lasts 7 days; simulator builds have no profile.
+    let installExpiry: Date? = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return nil }
+        do {
+            return try ProvisioningProfile.expirationDate(from: Data(contentsOf: url))
+        } catch {
+            fatalError("Unreadable embedded.mobileprovision: \(error)")
+        }
+    }()
+
     func reload() async {
         guard hasVault else { return }
         isLoading = true
@@ -49,6 +61,38 @@ final class AppModel {
             loadError = nil
         } catch {
             loadError = error.localizedDescription
+            return
+        }
+        await restoreFromBackupIfBlank()
+    }
+
+    /// On a fresh install (or after the app was deleted), pick progress back up from the vault copy.
+    private func restoreFromBackupIfBlank() async {
+        guard states.isEmpty, log.reviewsByDay.isEmpty else { return }
+        do {
+            guard let data = try await VaultAccess.readBackup() else { return }
+            let backup = try ProgressBackup.decode(data)
+            guard ProgressBackup.shouldRestore(localStates: states, localLog: log, backup: backup) else { return }
+            states = backup.states
+            log = backup.log
+            Storage.save(states, as: .states)
+            Storage.save(log, as: .log)
+            lastBackup = backup.exportedAt
+        } catch {
+            backupError = "Couldn't read the progress backup: \(error.localizedDescription)"
+        }
+    }
+
+    /// Copies progress into the vault. Called when a session ends and when the app goes to the background.
+    func backUpProgress() async {
+        guard hasVault else { return }
+        let backup = ProgressBackup(exportedAt: .now, states: states, log: log, cards: cards)
+        do {
+            try await VaultAccess.writeBackup(backup.encoded())
+            lastBackup = backup.exportedAt
+            backupError = nil
+        } catch {
+            backupError = "Couldn't back up progress to the vault: \(error.localizedDescription)"
         }
     }
 
@@ -91,6 +135,8 @@ final class AppModel {
         log = StudyLog()
         Storage.save(states, as: .states)
         Storage.save(log, as: .log)
+        // Overwrite the vault copy too, or the next launch would restore what was just erased.
+        Task { await backUpProgress() }
     }
 
     func toggleDeck(_ deck: String) {

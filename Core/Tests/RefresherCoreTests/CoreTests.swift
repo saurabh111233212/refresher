@@ -199,3 +199,45 @@ struct TutorTests {
         #expect(throws: (any Error).self) { try ChatCompletions.parse(line: "data: {not json") }
     }
 }
+
+struct ProgressBackupTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func state() -> ReviewState { ReviewState(due: now, intervalDays: 2, ease: 2.5, reviews: 2, lapses: 0) }
+
+    @Test func testRoundTripKeepsProgressAndSummarizesOnlyStudiedCards() throws {
+        let studied = Card(id: "a", deck: "PyTorch", question: "view vs reshape?", answer: "x")
+        let unseen = Card(id: "b", deck: "PyTorch", question: "other", answer: "y")
+        var log = StudyLog()
+        log.record(at: now, wasNew: true, calendar: Calendar(identifier: .gregorian))
+        let backup = ProgressBackup(exportedAt: now, states: ["a": state()], log: log, cards: [studied, unseen])
+        #expect(backup.cards == ["a": ProgressBackup.CardSummary(deck: "PyTorch", question: "view vs reshape?")])
+        let decoded = try ProgressBackup.decode(backup.encoded())
+        #expect(decoded == backup)
+        #expect(String(decoding: try backup.encoded(), as: UTF8.self).contains("\"exportedAt\" : \"2027-01-15T08:00:00Z\""))
+    }
+
+    @Test func testRestoresOnlyOntoABlankInstall() {
+        var log = StudyLog()
+        log.record(at: now, wasNew: false, calendar: Calendar(identifier: .gregorian))
+        let backup = ProgressBackup(exportedAt: now, states: ["a": state()], log: log, cards: [])
+        #expect(ProgressBackup.shouldRestore(localStates: [:], localLog: StudyLog(), backup: backup))
+        #expect(!ProgressBackup.shouldRestore(localStates: ["z": state()], localLog: StudyLog(), backup: backup))
+        #expect(!ProgressBackup.shouldRestore(localStates: [:], localLog: log, backup: backup))
+        let empty = ProgressBackup(exportedAt: now, states: [:], log: StudyLog(), cards: [])
+        #expect(!ProgressBackup.shouldRestore(localStates: [:], localLog: StudyLog(), backup: empty))
+    }
+
+    @Test func testReadsExpirationFromProvisioningProfileBlob() throws {
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict><key>ExpirationDate</key><date>2026-11-23T20:30:00Z</date><key>Name</key><string>x</string></dict></plist>
+        """
+        let blob = Data([0x30, 0x82, 0x01, 0x00]) + Data(plist.utf8) + Data([0xA0, 0x00, 0xFF])  // CMS wrapper bytes around the plist
+        #expect(try ProvisioningProfile.expirationDate(from: blob) == ISO8601DateFormatter().date(from: "2026-11-23T20:30:00Z"))
+        #expect(throws: ProvisioningProfileError.noPlist) { try ProvisioningProfile.expirationDate(from: Data([0x30, 0x82])) }
+        let noDate = Data("<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>Name</key><string>x</string></dict></plist>".utf8)
+        #expect(throws: ProvisioningProfileError.noExpirationDate) { try ProvisioningProfile.expirationDate(from: noDate) }
+    }
+}

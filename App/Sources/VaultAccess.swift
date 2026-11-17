@@ -38,16 +38,57 @@ enum VaultAccess {
     }
 
     static func loadSavedFolder() async throws -> VaultSnapshot {
+        let url = try savedFolderURL()
+        return try await Task.detached(priority: .userInitiated) { try read(vault: url) }.value
+    }
+
+    /// The backup file's bytes, or nil when the vault has none yet.
+    static func readBackup() async throws -> Data? {
+        let url = try savedFolderURL()
+        return try await Task.detached(priority: .utility) {
+            try withAccess(to: url) { vault in
+                let file = vault.appendingPathComponent(ProgressBackup.fileName)
+                let placeholder = vault.appendingPathComponent(".\(ProgressBackup.fileName).icloud")
+                guard FileManager.default.fileExists(atPath: file.path) || FileManager.default.fileExists(atPath: placeholder.path) else { return nil }
+                return Data(try coordinatedRead(file).utf8)
+            }
+        }.value
+    }
+
+    static func writeBackup(_ data: Data) async throws {
+        let url = try savedFolderURL()
+        try await Task.detached(priority: .utility) {
+            try withAccess(to: url) { vault in
+                let file = vault.appendingPathComponent(ProgressBackup.fileName)
+                var coordinationError: NSError?
+                var writeError: Error?
+                NSFileCoordinator().coordinate(writingItemAt: file, options: .forReplacing, error: &coordinationError) { writeURL in
+                    do { try data.write(to: writeURL, options: .atomic) } catch { writeError = error }
+                }
+                if let error = coordinationError ?? writeError { throw error }
+            }
+        }.value
+    }
+
+    private static func savedFolderURL() throws -> URL {
         guard let bookmark = UserDefaults.standard.data(forKey: bookmarkKey) else { throw VaultError.noFolder }
         var stale = false
         let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
         if stale { try saveFolder(url) }
-        return try await Task.detached(priority: .userInitiated) { try read(vault: url) }.value
+        return url
+    }
+
+    private static func withAccess<T>(to vault: URL, _ body: (URL) throws -> T) throws -> T {
+        let accessing = vault.startAccessingSecurityScopedResource()
+        defer { if accessing { vault.stopAccessingSecurityScopedResource() } }
+        return try body(vault)
     }
 
     private static func read(vault: URL) throws -> VaultSnapshot {
-        let accessing = vault.startAccessingSecurityScopedResource()
-        defer { if accessing { vault.stopAccessingSecurityScopedResource() } }
+        try withAccess(to: vault) { vault in try readContents(of: vault) }
+    }
+
+    private static func readContents(of vault: URL) throws -> VaultSnapshot {
 
         let flashcards = try markdownFiles(in: vault.appendingPathComponent("Flashcards"), vaultName: vault.lastPathComponent)
         let conceptsFolder = vault.appendingPathComponent("Concepts")

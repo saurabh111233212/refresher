@@ -20,6 +20,14 @@ struct SettingsView: View {
                     if model.hasVault {
                         Button("Reload cards") { Task { await model.reload() } }
                         LabeledContent("Cards loaded", value: "\(model.cards.count)")
+                        LabeledContent("Progress backup", value: model.lastBackup.map { $0.formatted(.relative(presentation: .named)) } ?? "Not yet")
+                        Button("Back up now") { Task { await model.backUpProgress() } }
+                        if let error = model.backupError {
+                            Text(error).font(.footnote).foregroundStyle(Theme.again)
+                        }
+                    }
+                    if let expiry = model.installExpiry {
+                        LabeledContent("Install expires", value: expiry.formatted(date: .abbreviated, time: .shortened))
                     }
                 }
 

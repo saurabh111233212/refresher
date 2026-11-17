@@ -19,6 +19,7 @@ struct HomeView: View {
                                 .foregroundStyle(Theme.again)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        ExpiryBanner()
                         progressHeader
                         startButtons
                         queueSummary
@@ -46,7 +47,7 @@ struct HomeView: View {
                 .foregroundStyle(Theme.accent)
             Text("Point me at your vault")
                 .font(.title2.bold())
-            Text("In Files, open iCloud Drive › Obsidian and pick the vault folder, the one with Flashcards and Concepts inside. Cards stay in sync with Obsidian; review progress stays on this phone.")
+            Text("In Files, open iCloud Drive › Obsidian and pick the vault folder, the one with Flashcards and Concepts inside. Cards stay in sync with Obsidian, and a copy of your progress is kept in the vault so a reinstall picks up where you left off.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

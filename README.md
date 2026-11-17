@@ -2,7 +2,7 @@
 
 A personal iOS flashcard app for short study bursts. It reads Obsidian Spaced Repetition decks (`?` cards) straight from a vault folder in iCloud Drive and has a built-in tutor that answers questions about each card.
 
-- **Review:** quick sessions of 3–20 cards. Swipe right for "got it", left for "again", up for "easy". The app keeps its own SM-2 schedule on the device and never writes to the vault. A daily goal and a streak keep it a habit.
+- **Review:** quick sessions of 3–20 cards. Swipe right for "got it", left for "again", up for "easy". The app keeps its own SM-2 schedule on the device and copies it to `.refresher-progress.json` in the vault after each session. A blank install restores from that copy. It never edits notes or decks. A daily goal and a streak keep it a habit, and a banner warns two days before a free-signing install expires.
 - **Tutor:** shows on each card once the answer is revealed, plus a separate Tutor tab. It sends the card plus all notes and decks to the OpenAI Chat Completions API and asks for a short answer. The API key lives in the device Keychain.
 - **Rendering:** markdown and LaTeX via bundled marked + KaTeX in a WKWebView, so it works offline. Controls use Liquid Glass (iOS 26+).
 

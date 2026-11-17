@@ -38,6 +38,7 @@ struct SessionView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
         .background(AmbientBackground())
+        .onDisappear { Task { await model.backUpProgress() } }
     }
 
     private var topBar: some View {

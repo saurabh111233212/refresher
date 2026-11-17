@@ -13,6 +13,7 @@ struct RefresherApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     // Pick up vault edits made in Obsidian or on the Mac while the app was in the background.
                     if phase == .active { Task { await model.reload() } }
+                    if phase == .background { Task { await model.backUpProgress() } }
                 }
         }
     }
